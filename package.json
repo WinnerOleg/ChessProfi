@@ -1,0 +1,162 @@
+// backend/package.json
+{
+  "name": "chessprofi-backend",
+  "version": "1.0.0",
+  "description": "ChessProfi - Платформа для обучения шахматам (Backend)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["chess", "learning", "platform"],
+  "author": "ChessProfi Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^7.0.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.0",
+    "cors": "^2.8.5",
+    "socket.io": "^4.6.0",
+    "dotenv": "^16.0.3",
+    "chess.js": "^1.0.0-beta.6"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.20"
+  }
+}
+
+// backend/.env.example
+# Переменные окружения для ChessProfi Backend
+# Скопируйте этот файл в .env и заполните значения
+
+# Порт сервера
+PORT=5000
+
+# MongoDB URI
+MONGODB_URI=mongodb://localhost:27017/chessprofi
+
+# JWT секретный ключ (используйте сложный случайный ключ в production)
+JWT_SECRET=your-super-secret-jwt-key
+
+# URL фронтенда для CORS
+FRONTEND_URL=http://localhost:3000
+
+// backend/src/routes/games.js
+const express = require('express');
+const Game = require('../models/Game');
+const authMiddleware = require('../middleware/auth');
+
+const router = express.Router();
+
+// Получить все игры пользователя
+router.get('/my-games', authMiddleware, async (req, res) => {
+  try {
+    const games = await Game.find({
+      $or: [
+        { white: req.userId },
+        { black: req.userId }
+      ]
+    })
+    .populate('white', 'name rating')
+    .populate('black', 'name rating')
+    .sort('-startedAt')
+    .limit(20);
+
+    res.json(games);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Создать новую игру
+router.post('/create', authMiddleware, async (req, res) => {
+  try {
+    const { opponentId } = req.body;
+
+    const game = new Game({
+      white: req.userId,
+      black: opponentId
+    });
+
+    await game.save();
+    await game.populate('white black', 'name rating');
+
+    res.status(201).json(game);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить игру по ID
+router.get('/:id', authMiddleware, async (req, res) => {
+  try {
+    const game = await Game.findById(req.params.id)
+      .populate('white black', 'name rating');
+
+    if (!game) {
+      return res.status(404).json({ error: 'Игра не найдена' });
+    }
+
+    res.json(game);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;
+
+// backend/src/middleware/auth.js
+const jwt = require('jsonwebtoken');
+
+module.exports = (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      throw new Error();
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    req.userId = decoded.userId;
+    req.userEmail = decoded.email;
+    req.userRole = decoded.role;
+    
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Пожалуйста, авторизуйтесь' });
+  }
+};
+
+// backend/src/routes/analysis.js
+const express = require('express');
+const { Chess } = require('chess.js');
+const authMiddleware = require('../middleware/auth');
+
+const router = express.Router();
+
+// Анализ позиции
+router.post('/position', authMiddleware, async (req, res) => {
+  try {
+    const { fen } = req.body;
+    const chess = new Chess(fen);
+
+    // Простой анализ (в реальном проекте здесь был бы Stockfish)
+    const analysis = {
+      isValid: chess.validate_fen(fen).valid,
+      isCheck: chess.isCheck(),
+      isCheckmate: chess.isCheckmate(),
+      isDraw: chess.isDraw(),
+      possibleMoves: chess.moves(),
+      turn: chess.turn(),
+      evaluation: Math.random() * 2 - 1 // Случайная оценка от -1 до 1
+    };
+
+    res.json(analysis);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;

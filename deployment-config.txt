@@ -1,0 +1,247 @@
+# docker-compose.yml - For local development
+# This is like setting up your chess board for practice
+version: '3.8'
+
+services:
+  # Main application - The King piece (most important)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://chess:password@postgres:5432/chess_learning
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=your-secret-key-here
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./src:/app/src  # Hot reload for development
+      - ./prisma:/app/prisma
+
+  # PostgreSQL database - The Queen (powerful and versatile)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=chess
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=chess_learning
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # Redis for caching and WebSocket scaling - The Knights (quick and agile)
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+
+  # Stockfish service - The Bishops (deep analysis)
+  stockfish:
+    build:
+      context: ./stockfish
+      dockerfile: Dockerfile
+    deploy:
+      replicas: 4  # Multiple engines for parallel analysis
+    environment:
+      - STOCKFISH_THREADS=2
+      - STOCKFISH_HASH=256
+
+volumes:
+  postgres_data:
+  redis_data:
+
+# Dockerfile - Building our application container
+FROM node:18-alpine AS builder
+
+# Install dependencies for native modules
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# Install dependencies
+RUN npm ci
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine
+
+# Install Stockfish (for local analysis option)
+RUN apk add --no-cache stockfish
+
+WORKDIR /app
+
+# Copy built application
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package*.json ./
+
+# Expose port
+EXPOSE 3000
+
+# Health check - Ensuring our King is safe
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD node healthcheck.js
+
+# Start the application
+CMD ["npm", "run", "start:prod"]
+
+# kubernetes/deployment.yaml - For production scaling
+# This is like organizing a chess tournament with multiple boards
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chess-learning-api
+  labels:
+    app: chess-learning
+spec:
+  replicas: 3  # Start with 3 instances
+  selector:
+    matchLabels:
+      app: chess-learning-api
+  template:
+    metadata:
+      labels:
+        app: chess-learning-api
+    spec:
+      containers:
+      - name: api
+        image: your-registry/chess-learning:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: chess-secrets
+              key: database-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: chess-secrets
+              key: redis-url
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+# Horizontal Pod Autoscaler - Scales based on load
+# Like adding more chess boards when more players arrive
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: chess-learning-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chess-learning-api
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100  # Double pods
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      policies:
+      - type: Percent
+        value: 50  # Remove half
+        periodSeconds: 60
+
+---
+# Service - Load balancer for our API
+apiVersion: v1
+kind: Service
+metadata:
+  name: chess-learning-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: chess-learning-api
+  ports:
+  - port: 80
+    targetPort: 3000
+  sessionAffinity: ClientIP  # Important for WebSocket connections
+
+---
+# Redis deployment for caching and WebSocket scaling
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

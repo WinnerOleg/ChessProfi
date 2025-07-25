@@ -1,0 +1,49 @@
+# ChessProfi - Структура проекта
+
+```
+chessprofi/
+├── backend/
+│   ├── src/
+│   │   ├── index.js
+│   │   ├── routes/
+│   │   │   ├── auth.js
+│   │   │   ├── games.js
+│   │   │   └── analysis.js
+│   │   ├── middleware/
+│   │   │   └── auth.js
+│   │   ├── models/
+│   │   │   ├── User.js
+│   │   │   └── Game.js
+│   │   ├── services/
+│   │   │   └── chess.js
+│   │   └── config/
+│   │       └── database.js
+│   ├── package.json
+│   └── .env.example
+│
+├── frontend/
+│   ├── public/
+│   │   ├── index.html
+│   │   └── favicon.ico
+│   ├── src/
+│   │   ├── App.js
+│   │   ├── index.js
+│   │   ├── pages/
+│   │   │   ├── Home.js
+│   │   │   ├── Login.js
+│   │   │   ├── Game.js
+│   │   │   └── Dashboard.js
+│   │   ├── components/
+│   │   │   ├── ChessBoard.js
+│   │   │   ├── GameList.js
+│   │   │   └── Navigation.js
+│   │   ├── services/
+│   │   │   └── api.js
+│   │   └── styles/
+│   │       └── App.css
+│   ├── package.json
+│   └── .env.example
+│
+├── README.md
+└── .gitignore
+```
